@@ -14,6 +14,7 @@ import {
 import mime from 'mime';
 import TelegramBot from 'node-telegram-bot-api';
 import { Integration } from '@prisma/client';
+import { TelegramDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/telegram.dto';
 import { telegramHtml } from '@gitroom/nestjs-libraries/integrations/social/telegram.html';
 
 const telegramBot = new TelegramBot(process.env.TELEGRAM_TOKEN!);
@@ -29,6 +30,7 @@ export class TelegramProvider extends SocialAbstract implements SocialProvider {
   isWeb3 = true;
   scopes = [] as string[];
   editor = 'html' as const;
+  dto = TelegramDto;
   maxLength(additionalSettings?: any, settings?: any, hasMedia?: boolean) {
     return hasMedia ? 1024 : 4096;
   }
@@ -218,6 +220,25 @@ export class TelegramProvider extends SocialAbstract implements SocialProvider {
     let messageId: number | null = null;
     const mediaFiles = message.media || [];
     const text = telegramHtml(message.message || '');
+    const settings: TelegramDto = message.settings || {};
+
+    // the options every send method takes
+    const common = {
+      ...(settings.protect_content ? { protect_content: true } : {}),
+      ...(settings.disable_notification ? { disable_notification: true } : {}),
+      ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+    };
+
+    // the options of a photo or a video, a document has neither
+    const visual: {
+      has_spoiler?: boolean;
+      show_caption_above_media?: boolean;
+    } = {
+      ...(settings.has_spoiler ? { has_spoiler: true } : {}),
+      ...(settings.media_position === 'bottom'
+        ? { show_caption_above_media: true }
+        : {}),
+    };
 
     const processedMedia = this.processMedia(mediaFiles);
 
@@ -225,7 +246,16 @@ export class TelegramProvider extends SocialAbstract implements SocialProvider {
     if (processedMedia.length === 0) {
       const response = await telegramBot.sendMessage(accessToken, text, {
         parse_mode: 'HTML',
-        ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+        ...common,
+        // the library sends the options as form fields, so a nested object
+        // has to be serialized here
+        ...(settings.disable_link_preview
+          ? {
+              link_preview_options: JSON.stringify({
+                is_disabled: true,
+              }) as unknown as TelegramBot.LinkPreviewOptions,
+            }
+          : {}),
       });
       messageId = response.message_id;
     }
@@ -235,21 +265,21 @@ export class TelegramProvider extends SocialAbstract implements SocialProvider {
       const options = {
         caption: text,
         parse_mode: 'HTML' as const,
-        ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+        ...common,
       };
       const response =
         media.type === 'video'
           ? await telegramBot.sendVideo(
               accessToken,
               media.media,
-              options,
+              { ...options, ...visual },
               media.fileOptions
             )
           : media.type === 'photo'
           ? await telegramBot.sendPhoto(
               accessToken,
               media.media,
-              options,
+              { ...options, ...visual },
               media.fileOptions
             )
           : await telegramBot.sendDocument(
@@ -269,12 +299,17 @@ export class TelegramProvider extends SocialAbstract implements SocialProvider {
           media: m.media,
           caption: i === 0 && index === 0 ? text : undefined,
           parse_mode: 'HTML',
+          ...(m.type === 'document' ? {} : visual),
         }));
 
         const response = await telegramBot.sendMediaGroup(
           accessToken,
           mediaGroup as any[],
           {
+            ...(settings.protect_content ? { protect_content: true } : {}),
+            ...(settings.disable_notification
+              ? { disable_notification: true }
+              : {}),
             ...(replyToMessageId && i === 0
               ? { reply_to_message_id: replyToMessageId }
               : {}),
