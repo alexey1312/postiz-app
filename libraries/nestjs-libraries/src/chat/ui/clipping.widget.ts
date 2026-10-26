@@ -98,8 +98,21 @@ export const clippingWidgetHtml = (backendUrl: string) => `<!DOCTYPE html>
     if (data.id !== undefined && data.method) send({ id: data.id, result: {} });
   });
 
+  // A gateway in front of the MCP server can rename its tools, for example an MCP
+  // portal names them <server>_clippingTool. The host sends the name of the tool
+  // that opened this widget, so the ticket tool gets the same prefix
+  var ticketTool = 'clippingWidgetTicketTool';
+  function useToolPrefix(init) {
+    var info = init && init.hostContext && init.hostContext.toolInfo;
+    var name = info && info.tool && info.tool.name;
+    var opener = 'clippingTool';
+    if (typeof name === 'string' && name.length > opener.length && name.slice(-opener.length) === opener) {
+      ticketTool = name.slice(0, -opener.length) + 'clippingWidgetTicketTool';
+    }
+  }
+
   function getTicket() {
-    return request('tools/call', { name: 'clippingWidgetTicketTool', arguments: { clippingId: clippingId } }).then(function (result) {
+    return request('tools/call', { name: ticketTool, arguments: { clippingId: clippingId } }).then(function (result) {
       var content = (result && result.structuredContent) || {};
       if (!content.ticket) throw new Error(content.error || 'Could not get a clipping ticket');
       return content.ticket;
@@ -269,7 +282,7 @@ export const clippingWidgetHtml = (backendUrl: string) => `<!DOCTYPE html>
     appCapabilities: {},
     protocolVersion: '2026-01-26',
   }).then(
-    function () { notify('ui/notifications/initialized', {}); resize(); },
+    function (init) { useToolPrefix(init); notify('ui/notifications/initialized', {}); resize(); },
     function () { fail('This app cannot display the clipping widget.'); }
   );
 })();

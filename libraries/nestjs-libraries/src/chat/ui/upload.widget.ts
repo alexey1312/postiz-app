@@ -118,8 +118,21 @@ export const uploadWidgetHtml = (backendUrl: string) => `<!DOCTYPE html>
     if (data.id !== undefined && data.method) send({ id: data.id, result: {} });
   });
 
+  // A gateway in front of the MCP server can rename its tools, for example an MCP
+  // portal names them <server>_uploadWidgetTool. The host sends the name of the
+  // tool that opened this widget, so the ticket tool gets the same prefix
+  var ticketTool = 'uploadWidgetTicketTool';
+  function useToolPrefix(init) {
+    var info = init && init.hostContext && init.hostContext.toolInfo;
+    var name = info && info.tool && info.tool.name;
+    var opener = 'uploadWidgetTool';
+    if (typeof name === 'string' && name.length > opener.length && name.slice(-opener.length) === opener) {
+      ticketTool = name.slice(0, -opener.length) + 'uploadWidgetTicketTool';
+    }
+  }
+
   function getTicket() {
-    return request('tools/call', { name: 'uploadWidgetTicketTool', arguments: { sessionId: sessionId } }).then(function (result) {
+    return request('tools/call', { name: ticketTool, arguments: { sessionId: sessionId } }).then(function (result) {
       var content = (result && result.structuredContent) || {};
       if (!content.ticket) throw new Error(content.error || 'Could not get an upload ticket');
       return content.ticket;
@@ -322,7 +335,7 @@ export const uploadWidgetHtml = (backendUrl: string) => `<!DOCTYPE html>
     appCapabilities: {},
     protocolVersion: '2026-01-26',
   }).then(
-    function () { notify('ui/notifications/initialized', {}); resize(); },
+    function (init) { useToolPrefix(init); notify('ui/notifications/initialized', {}); resize(); },
     function () { fail('This app cannot display the upload widget.'); }
   );
 })();
